@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Cosmic Wormhole</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        body {
+            background: #050508;
+            font-family: system-ui, -apple-system, sans-serif;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            cursor: pointer;
+        }
+        .ui-overlay {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            color: rgba(255, 255, 255, 0.85);
+            pointer-events: none;
+            z-index: 10;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            text-shadow: 0 0 10px rgba(255,255,255,0.3);
+        }
+        .instructions {
+            font-size: 12px;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-bottom: 20px;
+        }
+        /* Performance Dashboard controls */
+        .dashboard {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            background: rgba(10, 10, 15, 0.6);
+            padding: 15px 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            color: #fff;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-width: 220px;
+        }
+        .metrics-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            font-family: monospace;
+            letter-spacing: 0.5px;
+        }
+        .metric-val {
+            color: #00ffcc;
+            font-weight: bold;
+        }
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .slider-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #00ffcc;
+            box-shadow: 0 0 8px #00ffcc;
+            transition: transform 0.1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="ui-overlay">
+        <h1>Quantum Warp</h1>
+        <div class="instructions">MOVE MOUSE TO STEER • CLICK AND HOLD TO HYPERDRIVE</div>
+    </div>
+
+    <!-- Live Performance and Controls Dashboard -->
+    <div class="dashboard">
+        <div class="metrics-row">
+            <span>System Output:</span>
+            <span id="fps-display" class="metric-val">0 FPS</span>
+        </div>
+        <div class="slider-container">
+            <div class="metrics-row">
+                <span class="slider-label">Particle Load:</span>
+                <span id="count-display" class="metric-val">600</span>
+            </div>
+            <input type="range" id="particle-slider" min="50" max="2000" step="25" value="600">
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        const particles = [];
+        let maxParticles = 600; 
+        
+        let mouse = { x: width / 2, y: height / 2, targetX: width / 2, targetY: height / 2 };
+        let speedMultiplier = 1;
+        let targetSpeed = 1;
+        let baseRadius = 1.8;
+        let hueRotation = 0;
+
+        // FPS Tracker Variables
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        const fpsDisplay = document.getElementById('fps-display');
+        const particleSlider = document.getElementById('particle-slider');
+        const countDisplay = document.getElementById('count-display');
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.targetX = e.clientX;
+            mouse.targetY = e.clientY;
+        });
+
+        window.addEventListener('mousedown', () => targetSpeed = 4.5);
+        window.addEventListener('mouseup', () => targetSpeed = 1);
+        
+        window.addEventListener('touchmove', (e) => {
+            mouse.targetX = e.touches.clientX;
+            mouse.targetY = e.touches.clientY;
+        });
+        window.addEventListener('touchstart', () => targetSpeed = 4.5);
+        window.addEventListener('touchend', () => targetSpeed = 1);
+
+        // Update particle ceiling based on user choice dynamically
+        particleSlider.addEventListener('input', (e) => {
+            maxParticles = parseInt(e.target.value, 10);
+            countDisplay.textContent = maxParticles;
+            adjustParticleArray();
+        });
+
+        class Particle {
+            constructor(initialDistribute = false) {
+                this.reset();
+                // If initializing at startup, distribute them anywhere along the Z depth plane
+                this.z = initialDistribute ? Math.random() * 1000 : 1000;
+            }
+
+            reset() {
+                this.x = (Math.random() - 0.5) * width * 2.5;
+                this.y = (Math.random() - 0.5) * height * 2.5;
+                this.z = 1000;
+                this.hueOffset = Math.random() * 80;
+                this.brightness = Math.random() * 0.4 + 0.6;
+            }
+
+            update() {
+                this.z -= 5.5 * speedMultiplier;
+                if (this.z <= 0) {
+                    this.reset();
+                }
+            }
+
+            draw() {
+                const k = 600 / this.z;
+                const px = this.x * k + mouse.x;
+                const py = this.y * k + mouse.y;
+
+                if (px < 0 || px > width || py < 0 || py > height) {
+                    return;
+                }
+
+                const size = (1 - this.z / 1000) * baseRadius * k * 0.4;
+                const alpha = (1 - this.z / 1000);
+                const currentHue = (hueRotation + this.hueOffset) % 360;
+
+                ctx.beginPath();
+                ctx.arc(px, py, size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${currentHue}, 90%, 65%, ${alpha * this.brightness})`;
+                
+                // Adaptive engine calculations drop glow operations past a depth point to save CPU cycles
+                if (this.z < 300) {
+                    ctx.shadowBlur = size * 1.2;
+                    ctx.shadowColor = `hsl(${currentHue}, 90%, 65%)`;
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+                
+                ctx.fill();
+            }
+        }
+
+        // Dynamically add/remove array indices without causing visual stutter
+        function adjustParticleArray() {
+            if (particles.length < maxParticles) {
+                const diff = maxParticles - particles.length;
+                for (let i = 0; i < diff; i++) {
+                    particles.push(new Particle(false));
+                }
+            } else if (particles.length > maxParticles) {
+                particles.length = maxParticles;
+            }
+        }
+
+        // Populate array initially
+        for (let i = 0; i < maxParticles; i++) {
+            particles.push(new Particle(true));
+        }
+
+        function animate(currentTime) {
+            // Track delta-time offsets to derive absolute Frame Rate metrics
+            frameCount++;
+            if (currentTime - lastTime >= 1000) {
+                fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
+                fpsDisplay.textContent = `${fps} FPS`;
+                frameCount = 0;
+                lastTime = currentTime;
+            }
+
+            mouse.x += (mouse.targetX - mouse.x) * 0.06;
+            mouse.y += (mouse.targetY - mouse.y) * 0.06;
+
+            speedMultiplier += (targetSpeed - speedMultiplier) * 0.08;
+
+            ctx.shadowBlur = 0; 
+            ctx.fillStyle = `rgba(5, 5, 8, ${0.14 / speedMultiplier})`;
+            ctx.fillRect(0, 0, width, height);
+
+            hueRotation += 0.25;
+            
+            // Native Z-index sorting ensures engine spatial mapping remains accurate
+            particles.sort((a, b) => b.z - a.z);
+
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start requestAnimationFrame pipeline loop
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
