@@ -44,7 +44,6 @@
             color: rgba(255, 255, 255, 0.4);
             margin-bottom: 20px;
         }
-        /* Performance Dashboard controls */
         .dashboard {
             position: absolute;
             bottom: 30px;
@@ -113,7 +112,6 @@
         <div class="instructions">MOVE MOUSE TO STEER • CLICK AND HOLD TO HYPERDRIVE</div>
     </div>
 
-    <!-- Live Performance and Controls Dashboard -->
     <div class="dashboard">
         <div class="metrics-row">
             <span>System Output:</span>
@@ -122,9 +120,9 @@
         <div class="slider-container">
             <div class="metrics-row">
                 <span class="slider-label">Particle Load:</span>
-                <span id="count-display" class="metric-val">600</span>
+                <span id="count-display" class="metric-val">800</span>
             </div>
-            <input type="range" id="particle-slider" min="50" max="2000" step="25" value="600">
+            <input type="range" id="particle-slider" min="50" max="2000" step="25" value="800">
         </div>
     </div>
 
@@ -138,15 +136,14 @@
         let height = canvas.height = window.innerHeight;
 
         const particles = [];
-        let maxParticles = 600; 
+        let maxParticles = 800; // Increased base count for dense tunnel rings
         
         let mouse = { x: width / 2, y: height / 2, targetX: width / 2, targetY: height / 2 };
         let speedMultiplier = 1;
         let targetSpeed = 1;
-        let baseRadius = 1.8;
+        let baseRadius = 2.2;
         let hueRotation = 0;
 
-        // FPS Tracker Variables
         let lastTime = performance.now();
         let frameCount = 0;
         let fps = 0;
@@ -174,7 +171,6 @@
         window.addEventListener('touchstart', () => targetSpeed = 4.5);
         window.addEventListener('touchend', () => targetSpeed = 1);
 
-        // Update particle ceiling based on user choice dynamically
         particleSlider.addEventListener('input', (e) => {
             maxParticles = parseInt(e.target.value, 10);
             countDisplay.textContent = maxParticles;
@@ -182,48 +178,61 @@
         });
 
         class Particle {
-            constructor(initialDistribute = false) {
-                this.reset();
-                // If initializing at startup, distribute them anywhere along the Z depth plane
-                this.z = initialDistribute ? Math.random() * 1000 : 1000;
+            constructor(initialZ = 1000) {
+                // Distribute angle in a circle to form distinct tunnel ring geometry
+                this.angle = Math.random() * Math.PI * 2;
+                // Radial distance from center point path
+                this.radius = Math.random() * 400 + 50; 
+                
+                // Set explicitly provided Z depth to prevent batch grouping
+                this.z = initialZ;
+                
+                this.hueOffset = Math.random() * 90;
+                this.brightness = Math.random() * 0.4 + 0.6;
             }
 
             reset() {
-                this.x = (Math.random() - 0.5) * width * 2.5;
-                this.y = (Math.random() - 0.5) * height * 2.5;
-                this.z = 1000;
-                this.hueOffset = Math.random() * 80;
+                this.angle = Math.random() * Math.PI * 2;
+                this.radius = Math.random() * 400 + 50;
+                // Re-spawn far away at the back opening of the tunnel
+                this.z = 1000; 
+                this.hueOffset = Math.random() * 90;
                 this.brightness = Math.random() * 0.4 + 0.6;
             }
 
             update() {
-                this.z -= 5.5 * speedMultiplier;
+                // Approach viewport smoothly based on speed multiplier
+                this.z -= 5.0 * speedMultiplier;
                 if (this.z <= 0) {
                     this.reset();
                 }
             }
 
             draw() {
-                const k = 600 / this.z;
-                const px = this.x * k + mouse.x;
-                const py = this.y * k + mouse.y;
+                const k = 700 / this.z;
+                
+                // Calculate position relative to the perspective warp point
+                const cx = Math.cos(this.angle) * this.radius;
+                const cy = Math.sin(this.angle) * this.radius;
+                
+                const px = cx * k + mouse.x;
+                const py = cy * k + mouse.y;
 
                 if (px < 0 || px > width || py < 0 || py > height) {
                     return;
                 }
 
-                const size = (1 - this.z / 1000) * baseRadius * k * 0.4;
+                const size = (1 - this.z / 1000) * baseRadius * k * 0.35;
                 const alpha = (1 - this.z / 1000);
                 const currentHue = (hueRotation + this.hueOffset) % 360;
 
                 ctx.beginPath();
                 ctx.arc(px, py, size, 0, Math.PI * 2);
-                ctx.fillStyle = `hsla(${currentHue}, 90%, 65%, ${alpha * this.brightness})`;
+                ctx.fillStyle = `hsla(${currentHue}, 95%, 65%, ${alpha * this.brightness})`;
                 
-                // Adaptive engine calculations drop glow operations past a depth point to save CPU cycles
-                if (this.z < 300) {
-                    ctx.shadowBlur = size * 1.2;
-                    ctx.shadowColor = `hsl(${currentHue}, 90%, 65%)`;
+                if (this.z < 250) {
+                    ctx.shadowBlur = size * 1.5;
+                    ctx.shadowColor = `hsl(${currentHue}, 95%, 65%)`;
                 } else {
                     ctx.shadowBlur = 0;
                 }
@@ -232,25 +241,25 @@
             }
         }
 
-        // Dynamically add/remove array indices without causing visual stutter
         function adjustParticleArray() {
             if (particles.length < maxParticles) {
                 const diff = maxParticles - particles.length;
                 for (let i = 0; i < diff; i++) {
-                    particles.push(new Particle(false));
+                    // Stagger dynamically added items evenly across the current tunnel depth
+                    particles.push(new Particle(Math.random() * 1000));
                 }
             } else if (particles.length > maxParticles) {
                 particles.length = maxParticles;
             }
         }
 
-        // Populate array initially
+        // Initialize: Spread particles evenly from Z=0 to Z=1000 to construct the initial tunnel length
         for (let i = 0; i < maxParticles; i++) {
-            particles.push(new Particle(true));
+            const staggeredZ = (i / maxParticles) * 1000;
+            particles.push(new Particle(staggeredZ));
         }
 
         function animate(currentTime) {
-            // Track delta-time offsets to derive absolute Frame Rate metrics
             frameCount++;
             if (currentTime - lastTime >= 1000) {
                 fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
@@ -259,18 +268,18 @@
                 lastTime = currentTime;
             }
 
-            mouse.x += (mouse.targetX - mouse.x) * 0.06;
-            mouse.y += (mouse.targetY - mouse.y) * 0.06;
+            mouse.x += (mouse.targetX - mouse.x) * 0.05;
+            mouse.y += (mouse.targetY - mouse.y) * 0.05;
 
-            speedMultiplier += (targetSpeed - speedMultiplier) * 0.08;
+            speedMultiplier += (targetSpeed - speedMultiplier) * 0.07;
 
             ctx.shadowBlur = 0; 
-            ctx.fillStyle = `rgba(5, 5, 8, ${0.14 / speedMultiplier})`;
+            ctx.fillStyle = `rgba(5, 5, 8, ${0.15 / speedMultiplier})`;
             ctx.fillRect(0, 0, width, height);
 
-            hueRotation += 0.25;
+            hueRotation += 0.2;
             
-            // Native Z-index sorting ensures engine spatial mapping remains accurate
+            // Sort by depth so distant particles are drawn behind closer ones
             particles.sort((a, b) => b.z - a.z);
 
             for (let i = 0; i < particles.length; i++) {
@@ -281,7 +290,6 @@
             requestAnimationFrame(animate);
         }
 
-        // Start requestAnimationFrame pipeline loop
         requestAnimationFrame(animate);
     </script>
 </body>
